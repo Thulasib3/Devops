@@ -1,0 +1,59 @@
+name: Delete .circleci from specific repos
+
+on:
+  workflow_dispatch:
+    inputs:
+      repos:
+        description: "Comma-separated list of repository names (e.g., repo1,repo2)"
+        required: true
+        type: string
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (dummy repo to run workflow)
+        uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Remove .circleci from selected repos
+        env:
+          GH_USER: Thulasib3
+          GH_PAT: ${{ secrets.GH_PAT }}
+          REPOS_INPUT: ${{ github.event.inputs.repos }}
+        run: |
+          # Convert comma-separated input to array
+          IFS=',' read -ra repos <<< "$REPOS_INPUT"
+
+          for repo in "${repos[@]}"; do
+            repo=$(echo "$repo" | xargs) # trim spaces
+            echo "Processing repository: $repo"
+
+            # Get all branches for the repo
+            branches=$(curl -s -u "$GH_USER:$GH_PAT" \
+              "https://api.github.com/repos/$GH_USER/$repo/branches" \
+              | jq -r '.[].name')
+
+            for branch in $branches; do
+              echo "  Processing branch: $branch"
+
+              git clone -b "$branch" \
+                "https://$GH_USER:$GH_PAT@github.com/$GH_USER/$repo.git" tmp_repo
+              cd tmp_repo || exit
+
+              if [ -d ".circleci" ]; then
+                rm -rf .circleci
+                git rm -r --cached .circleci
+                git commit -m "Remove .circleci folder"
+                git push origin "$branch"
+                echo "    Deleted .circleci from $branch"
+              else
+                echo "    No .circleci folder found in $branch"
+              fi
+
+              cd ..
+              rm -rf tmp_repo
+            done
+          done
