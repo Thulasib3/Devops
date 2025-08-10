@@ -6,7 +6,7 @@ on:
       repos:
         description: "Comma-separated list of repository names (e.g., repo1,repo2)"
         required: true
-        type: string
+        default: "" # changed for wider compatibility with workflow_dispatch UI
 
 jobs:
   cleanup:
@@ -24,6 +24,10 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT }}
           REPOS_INPUT: ${{ github.event.inputs.repos }}
         run: |
+          # Set Git identity for commits
+          git config --global user.email "kamasanithulasireddy@gmail.com"
+          git config --global user.name "Thulasib3"
+
           # Convert comma-separated input to array
           IFS=',' read -ra repos <<< "$REPOS_INPUT"
 
@@ -33,7 +37,7 @@ jobs:
 
             # Get all branches for the repo
             branches=$(curl -s -u "$GH_USER:$GH_PAT" \
-              "https://api.github.com/repos/$GH_USER/$repo/branches" \
+              "https://api.github.com/repos/$GH_USER/$repo/branches?per_page=100" \
               | jq -r '.[].name')
 
             for branch in $branches; do
@@ -48,9 +52,9 @@ jobs:
                 git rm -r --cached .circleci
                 git commit -m "Remove .circleci folder"
                 git push origin "$branch"
-                echo "    Deleted .circleci from $branch"
+                echo "    ✅ Deleted .circleci from $branch"
               else
-                echo "    No .circleci folder found in $branch"
+                echo "    ℹ No .circleci folder found in $branch"
               fi
 
               cd ..
