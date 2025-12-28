@@ -4,16 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       repos:
-        description: "Comma-separated list of repository names (e.g., repo1,repo2)"
+        description: "Comma-separated list of repository names"
         required: true
         default: ""
 
 jobs:
   cleanup:
-   runs-on: ubuntu-latest
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout (dummy repo to run workflow)
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install dependencies
@@ -34,7 +34,7 @@ jobs:
           exec > >(tee cleanup.log) 2>&1
 
           git config --global user.email "$GH_EMAIL"
-          git config --global user.name "$GH_USE"
+          git config --global user.name "$GH_USER"
 
           IFS=',' read -ra repos <<< "$REPOS_INPUT"
 
@@ -68,6 +68,35 @@ jobs:
             done
           done
 
+      # ✅ SUCCESS CASE
+      - name: 🤖 ChatGPT Success Summary
+        if: success()
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python3 << 'EOF'
+          import openai, os
+
+          openai.api_key = os.getenv("OPENAI_API_KEY")
+
+          prompt = """
+          You are a DevOps assistant.
+
+          The GitHub Actions pipeline completed SUCCESSFULLY.
+          Respond with a short confirmation message suitable for logs.
+          """
+
+          response = openai.ChatCompletion.create(
+              model="gpt-4o-mini",
+              messages=[{"role": "user", "content": prompt}],
+              temperature=0.1
+          )
+
+          print("\n✅ PIPELINE STATUS\n")
+          print(response["choices"][0]["message"]["content"])
+          EOF
+
+      # ❌ FAILURE CASE
       - name: 🤖 ChatGPT Failure Analysis
         if: failure()
         env:
@@ -79,16 +108,16 @@ jobs:
           openai.api_key = os.getenv("OPENAI_API_KEY")
 
           with open("cleanup.log", "r", errors="ignore") as f:
-              logs = f.read()[-12000:]  # limit size
+              logs = f.read()[-12000:]
 
           prompt = f"""
           You are a Senior DevOps SME.
 
-          Analyze the GitHub Actions failure logs below and provide:
+          The GitHub Actions pipeline FAILED.
+          Analyze the logs and provide:
           1. Root cause
           2. Exact fix steps
           3. Whether retry will help (YES/NO)
-          4. Any GitHub API or permission issues
 
           Logs:
           {logs}
@@ -100,7 +129,6 @@ jobs:
               temperature=0.2
           )
 
-          print("\n========== 🤖 AI FAILURE ANALYSIS ==========\n")
+          print("\n❌ PIPELINE FAILURE ANALYSIS\n")
           print(response["choices"][0]["message"]["content"])
-          print("\n===========================================\n")
           EOF
