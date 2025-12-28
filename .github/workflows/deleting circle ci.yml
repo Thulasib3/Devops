@@ -75,25 +75,25 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           python3 << 'EOF'
-          import openai, os
+          from openai import OpenAI
+          import os
 
-          openai.api_key = os.getenv("OPENAI_API_KEY")
+          client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
           prompt = """
           You are a DevOps assistant.
-
           The GitHub Actions pipeline completed SUCCESSFULLY.
           Respond with a short confirmation message suitable for logs.
           """
 
-          response = openai.ChatCompletion.create(
+          response = client.chat.completions.create(
               model="gpt-4o-mini",
               messages=[{"role": "user", "content": prompt}],
               temperature=0.1
           )
 
           print("\n✅ PIPELINE STATUS\n")
-          print(response["choices"][0]["message"]["content"])
+          print(response.choices[0].message.content)
           EOF
 
       # ❌ FAILURE CASE
@@ -103,9 +103,10 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           python3 << 'EOF'
-          import openai, os
+          from openai import OpenAI
+          import os
 
-          openai.api_key = os.getenv("OPENAI_API_KEY")
+          client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
           with open("cleanup.log", "r", errors="ignore") as f:
               logs = f.read()[-12000:]
@@ -123,12 +124,12 @@ jobs:
           {logs}
           """
 
-          response = openai.ChatCompletion.create(
+          response = client.chat.completions.create(
               model="gpt-4o-mini",
               messages=[{"role": "user", "content": prompt}],
               temperature=0.2
           )
 
           print("\n❌ PIPELINE FAILURE ANALYSIS\n")
-          print(response["choices"][0]["message"]["content"])
+          print(response.choices[0].message.content)
           EOF
