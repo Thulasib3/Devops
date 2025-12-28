@@ -11,32 +11,37 @@ on:
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout (dummy repo to run workflow)
         uses: actions/checkout@v4
 
-      - name: Install jq
-        run: sudo apt-get install -y jq
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq python3-pip
+          pip3 install openai
 
       - name: Remove .circleci from selected repos
+        id: cleanup_step
         env:
           GH_USER: Thulasib3
           GH_EMAIL: kamasanithulasireddy@gmail.com
           GH_PAT: ${{ secrets.GH_PAT }}
           REPOS_INPUT: ${{ github.event.inputs.repos }}
         run: |
-          # Configure Git identity
+          set -o pipefail
+          exec > >(tee cleanup.log) 2>&1
+
           git config --global user.email "$GH_EMAIL"
           git config --global user.name "$GH_USER"
 
-          # Convert comma-separated repos to array
           IFS=',' read -ra repos <<< "$REPOS_INPUT"
 
           for repo in "${repos[@]}"; do
-            repo=$(echo "$repo" | xargs) # trim spaces
+            repo=$(echo "$repo" | xargs)
             echo "Processing repository: $repo"
 
-            # Get all branches
             branches=$(curl -s -H "Authorization: token $GH_PAT" \
               "https://api.github.com/repos/$GH_USER/$repo/branches?per_page=100" \
               | jq -r '.[].name')
@@ -44,10 +49,9 @@ jobs:
             for branch in $branches; do
               echo "  Processing branch: $branch"
 
-              # Clone with PAT auth
               git clone -b "$branch" \
                 "https://$GH_PAT@github.com/$GH_USER/$repo.git" tmp_repo
-              cd tmp_repo || exit
+              cd tmp_repo || exit 1
 
               if [ -d ".circleci" ]; then
                 rm -rf .circleci
@@ -63,3 +67,40 @@ jobs:
               rm -rf tmp_repo
             done
           done
+
+      - name: 🤖 ChatGPT Failure Analysis
+        if: failure()
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python3 << 'EOF'
+          import openai, os
+
+          openai.api_key = os.getenv("OPENAI_API_KEY")
+
+          with open("cleanup.log", "r", errors="ignore") as f:
+              logs = f.read()[-12000:]  # limit size
+
+          prompt = f"""
+          You are a Senior DevOps SME.
+
+          Analyze the GitHub Actions failure logs below and provide:
+          1. Root cause
+          2. Exact fix steps
+          3. Whether retry will help (YES/NO)
+          4. Any GitHub API or permission issues
+
+          Logs:
+          {logs}
+          """
+
+          response = openai.ChatCompletion.create(
+              model="gpt-4o-mini",
+              messages=[{"role": "user", "content": prompt}],
+              temperature=0.2
+          )
+
+          print("\n========== 🤖 AI FAILURE ANALYSIS ==========\n")
+          print(response["choices"][0]["message"]["content"])
+          print("\n===========================================\n")
+          EOF
